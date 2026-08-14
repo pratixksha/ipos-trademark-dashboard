@@ -1,70 +1,107 @@
-# Singapore Trademark Filing Trends — IPOS Open Data Dashboard
+# Singapore trademark activity monitor — IPOS open data dashboard
 
-Lightweight Streamlit dashboard and pipeline for exploring trademark filing activity in Singapore. This repository ships with an aggregated CSV of trademark filings by year and class and provides tooling to convert that into the cleaned dataset used by the dashboard.
+A data pipeline and Streamlit dashboard for analyzing **trademark filing activity in Singapore** using **IPOS (Intellectual Property Office of Singapore) open data** from data.gov.sg.
 
-**Status:** ready to run locally with the provided CSV. The original `fetch.py`/`clean.py` pipeline has been deprecated in this copy — see Notes below.
+The project transforms raw trademark filing statistics into a lightweight monitoring dashboard that highlights filing trends, concentration across trademark classes, and statistically unusual years worth investigating.
 
-## What this repo contains
+## What this project does
 
-- `TrademarksfiledinSingaporebyClasses.csv` — aggregated counts by `year` and `trademark_class` (the provided source)
-- `scripts/import_aggregated.py` — converts the aggregated CSV into a per-filing cleaned CSV used by the app (creates synthetic per-filing rows)
-- `scripts/load_db.py` — loads the cleaned CSV into `data/processed/ipos.db` (SQLite)
-- `scripts/queries.py` — SQL queries used by the dashboard (yearly trends, class breakdowns, anomaly detection)
-- `app/app.py` — Streamlit dashboard UI (uses Plotly to render charts)
-- `data/processed/*` — generated cleaned CSV and SQLite DB after running the importer and loader
-- `requirements.txt` — Python deps
+The dashboard tracks:
 
-## Quick start (recommended)
+* **Yearly filing trends** — total trademark filings over time
+* **Year-over-year change** — filing growth or decline
+* **Trademark class concentration** — which classes account for the most filings
+* **Class distribution** — filing volume across trademark classes
+* **Anomaly detection** — years that deviate significantly from recent historical activity
 
-1. Create and activate a virtual environment (optional but recommended):
+The goal is not to predict filings, but to **identify changes and outliers** that may warrant further investigation.
+
+## Data source
+
+* **Dataset:** IPOS trademark filing statistics from data.gov.sg
+* **Input file:** `TrademarksfiledinSingaporebyClasses.csv`
+* **Storage:** SQLite (`data/processed/ipos.db`)
+
+The dataset is **not included in this repository**. Download it from the IPOS data.gov.sg dataset page and place it in the project root before running the pipeline.
+
+## Pipeline
+
+```text
+TrademarksfiledinSingaporebyClasses.csv
+                ↓
+scripts/import_aggregated.py
+                ↓
+cleaned filing dataset
+                ↓
+scripts/load_db.py
+                ↓
+SQLite database
+                ↓
+scripts/queries.py
+                ↓
+Streamlit dashboard
+```
+
+## Run locally
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
 
-2. Install dependencies:
-
-```bash
-python3 -m pip install --upgrade pip setuptools wheel
 python3 -m pip install -r requirements.txt
-```
 
-3. Convert the aggregated CSV into the cleaned per-filing CSV and load the DB:
+# Place TrademarksfiledinSingaporebyClasses.csv in the project root
 
-```bash
 python3 scripts/import_aggregated.py
 python3 scripts/load_db.py
-```
-
-4. Run the dashboard:
-
-```bash
 streamlit run app/app.py
 ```
 
-Open the Local URL printed by Streamlit (usually http://localhost:8501).
+Open the local Streamlit URL (typically `http://localhost:8501`).
 
-## What the importer does
+## Methodology
 
-- `import_aggregated.py` expands each aggregated (year, class, count) row into synthetic per-filing rows so the rest of the pipeline (SQL queries, anomaly detection) can run without changing query logic.
-- Synthetic rows include:
-  - `filing_date`: set to `YYYY-01-01` (year start)
-  - `trademark_classes_str`: copied from the aggregated CSV
-  - `applicant_country`, `mark_status`, and other applicant-level fields: left empty (NULL)
+### Anomaly detection
 
-## Important caveats
+Anomalies are detected using a **rolling mean and rolling standard deviation** (3-year window):
 
-- Country and mark-status metrics are empty because the aggregated CSV does not include applicant-level metadata. The dashboard hides or annotates those charts when data is missing.
-- Synthetic expansion is a convenience to make the SQL-based dashboard work; it does not recreate real per-application details. If you have a raw per-application CSV (with `applicant_country`, `mark_status`, and class arrays), import that instead for richer analysis.
+```python
+rolling_mean = filing_count.rolling(window=3).mean()
+rolling_std = filing_count.rolling(window=3).std()
+z_score = (filing_count - rolling_mean) / rolling_std
+is_anomaly = abs(z_score) > 2.0
+```
 
-## Anomaly detection
+A year is flagged when its filing volume differs substantially from the recent historical baseline. The approach is intentionally simple and explainable rather than model-driven.
 
-- The dashboard flags anomalies using a simple rolling mean + std approach (3-year rolling window, flag if |z| > 2). This is intentionally explainable; absence of a flagged anomaly means "no year exceeded the chosen threshold in the current data", not that nothing interesting exists.
+## Project structure
 
-## Contributing / next work
+```text
+app/
+  app.py                  # Streamlit dashboard
 
-- Add a proper cleaning pipeline to parse raw API JSON -> normalized rows (if you re-enable the fetch flow).
-- Add caching / pagination for the Streamlit UI if the dataset grows large.
-- Add unit tests for key `scripts/queries.py` functions.
+scripts/
+  import_aggregated.py    # Convert source dataset into cleaned filing data
+  load_db.py              # Load cleaned data into SQLite
+  queries.py              # SQL queries and analytics
 
+data/
+  processed/              # Generated database (not tracked in Git)
+
+requirements.txt
+README.md
+```
+
+## Why I built this
+
+I wanted to build a project that combines **data engineering, SQL analytics, and visualization** on a real government dataset.
+
+The interesting part of the project is the **pipeline**: ingesting external data, transforming it into a queryable database, computing explainable analytics, and presenting the results through an interactive dashboard.
+
+## Tech stack
+
+* Python
+* pandas
+* SQLite
+* Streamlit
+* Plotly
